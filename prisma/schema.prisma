@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  image     String?
+  createdAt DateTime @default(now())
+  analyses  Analysis[]
+  uploads   Upload[]
+}
+
+model Upload {
+  id        String   @id @default(cuid())
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
+  key       String   @unique
+  filename  String
+  size      Int
+  createdAt DateTime @default(now())
+  analysis  Analysis?
+}
+
+model Analysis {
+  id         String   @id @default(cuid())
+  user       User?    @relation(fields: [userId], references: [id])
+  userId     String?
+  upload     Upload?  @relation(fields: [uploadId], references: [id])
+  uploadId   String?
+  kind       String
+  result     Json
+  createdAt  DateTime @default(now())
+}
