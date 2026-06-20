@@ -1,9 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const GEMINI_URL =
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+const MODEL = "gemini-2.5-flash";
 
-function cleanJson(text: string) {
+async function callGemini(prompt: string, temperature = 0.4): Promise<string> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature, maxOutputTokens: 2048 },
+      }),
+    }
+  );
+
+  if (res.status === 429) {
+    throw new Error("RATE_LIMIT");
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`GEMINI_ERROR:${res.status}:${body.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   return text.replace(/```json|```/g, "").trim();
 }
 
@@ -15,22 +36,22 @@ export async function POST(req: NextRequest) {
     }
 
     const prompt = `You are a world-class HR consultant and career coach with 20 years of experience.
-Analyze the following CV/resume in detail and return ONLY a valid JSON object — no markdown, no extra text.
+Analyze the following CV/resume in detail and return ONLY a valid JSON object — no markdown, no extra text, no code fences.
 
 Required JSON structure:
 {
-  "score": <overall score 0-100 based on quality>,
+  "score": <overall score 0-100>,
   "subScores": {
     "structure": <0-100, layout, formatting, readability>,
-    "content": <0-100, depth of experience descriptions, achievements>,
-    "ats": <0-100, ATS keyword optimization, section headings>,
-    "impact": <0-100, quantified achievements, measurable results>
+    "content": <0-100, depth of experience, achievements>,
+    "ats": <0-100, ATS keyword optimization>,
+    "impact": <0-100, quantified achievements>
   },
-  "detectedRole": "<primary job title/role this CV targets>",
+  "detectedRole": "<primary job title this CV targets>",
   "detectedLevel": "<one of: Fresher | Junior | Mid-level | Senior | Lead | Executive>",
-  "summary": "<2-sentence personalized executive summary of this candidate's profile>",
-  "strengths": ["<specific strength 1>", "<specific strength 2>", "<specific strength 3>", "<specific strength 4>"],
-  "weaknesses": ["<specific weakness 1>", "<specific weakness 2>", "<specific weakness 3>"],
+  "summary": "<2-sentence personalized summary of this candidate>",
+  "strengths": ["<strength 1>", "<strength 2>", "<strength 3>", "<strength 4>"],
+  "weaknesses": ["<weakness 1>", "<weakness 2>", "<weakness 3>"],
   "improvements": [
     "<specific actionable improvement 1 with example>",
     "<specific actionable improvement 2 with example>",
@@ -39,41 +60,31 @@ Required JSON structure:
   ],
   "atsOptimization": [
     "<ATS tip 1 specific to this CV>",
-    "<ATS tip 2 specific to this CV>",
-    "<ATS tip 3 specific to this CV>"
+    "<ATS tip 2>",
+    "<ATS tip 3>"
   ],
   "missingSkills": ["<skill 1>", "<skill 2>", "<skill 3>", "<skill 4>", "<skill 5>"],
-  "topKeywords": ["<keyword found in CV 1>", "...", "<up to 12 keywords>"],
+  "topKeywords": ["<keyword 1>", "<keyword 2>", "<up to 12 keywords found in the CV>"],
   "recommendedRoles": [
-    { "role": "<role title>", "match": "<High|Medium>", "reason": "<1 sentence why>" },
-    { "role": "<role title>", "match": "<High|Medium>", "reason": "<1 sentence why>" },
-    { "role": "<role title>", "match": "<High|Medium>", "reason": "<1 sentence why>" }
+    { "role": "<role title>", "match": "High", "reason": "<1 sentence>" },
+    { "role": "<role title>", "match": "High", "reason": "<1 sentence>" },
+    { "role": "<role title>", "match": "Medium", "reason": "<1 sentence>" }
   ]
 }
 
 CV to analyze:
 ${cvText.slice(0, 8000)}`;
 
-    const res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("Gemini API error:", err);
-      return NextResponse.json({ error: "AI service unavailable" }, { status: 502 });
-    }
-
-    const data = await res.json();
-    const text = cleanJson(data.candidates?.[0]?.content?.parts?.[0]?.text || "");
+    const text = await callGemini(prompt, 0.3);
     return NextResponse.json(JSON.parse(text));
-  } catch (err) {
-    console.error("analyze-cv route error:", err);
-    return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
+  } catch (err: any) {
+    console.error("analyze-cv error:", err.message);
+    if (err.message === "RATE_LIMIT") {
+      return NextResponse.json(
+        { error: "The AI service is busy. Please wait 30 seconds and try again." },
+        { status: 429 }
+      );
+    }
+    return NextResponse.json({ error: "Analysis failed. Please try again." }, { status: 500 });
   }
 }

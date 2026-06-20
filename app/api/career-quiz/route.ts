@@ -1,10 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const GEMINI_URL =
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+const MODEL = "gemini-2.5-flash";
 
-function cleanJson(text: string) {
-  return text.replace(/```json|```/g, "").trim();
+async function callGemini(prompt: string, temperature = 0.5): Promise<string> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature, maxOutputTokens: 2048 },
+      }),
+    }
+  );
+  if (res.status === 429) throw new Error("RATE_LIMIT");
+  if (!res.ok) throw new Error(`GEMINI_ERROR:${res.status}`);
+  const data = await res.json();
+  return (data.candidates?.[0]?.content?.parts?.[0]?.text || "").replace(/```json|```/g, "").trim();
 }
 
 const QUIZ_SCORE_MAP: Record<number, Record<number, Record<string, number>>> = {
@@ -143,24 +156,16 @@ Return ONLY valid JSON:
 }`;
     }
 
-    const res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
-      }),
-    });
-
-    if (!res.ok) {
-      return NextResponse.json({ error: "AI service unavailable" }, { status: 502 });
-    }
-
-    const data = await res.json();
-    const text = cleanJson(data.candidates?.[0]?.content?.parts?.[0]?.text || "");
+    const text = await callGemini(prompt, 0.5);
     return NextResponse.json(JSON.parse(text));
-  } catch (err) {
-    console.error("career-quiz route error:", err);
-    return NextResponse.json({ error: "Quiz analysis failed" }, { status: 500 });
+  } catch (err: any) {
+    console.error("career-quiz route error:", err.message);
+    if (err.message === "RATE_LIMIT") {
+      return NextResponse.json(
+        { error: "The AI service is busy. Please wait 30 seconds and try again." },
+        { status: 429 }
+      );
+    }
+    return NextResponse.json({ error: "Quiz analysis failed. Please try again." }, { status: 500 });
   }
 }

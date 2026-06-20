@@ -52,8 +52,8 @@ export async function analyzeCv(cvText: string): Promise<CvResult> {
     body: JSON.stringify({ cvText }),
   });
   if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`CV analysis failed: ${res.status} ${errText}`);
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed (${res.status}). Please try again.`);
   }
   return res.json();
 }
@@ -89,7 +89,10 @@ export async function generateInterviewQuestions(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role, level, companyType }),
   });
-  if (!res.ok) throw new Error(`Interview prep failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed (${res.status}). Please try again.`);
+  }
   return res.json();
 }
 
@@ -118,9 +121,13 @@ export async function getSalaryInsights(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role, country }),
   });
-  if (!res.ok) throw new Error(`Salary guide failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed (${res.status}). Please try again.`);
+  }
   return res.json();
 }
+
 
 // ── Career Quiz ────────────────────────────────────────────────────────────
 
